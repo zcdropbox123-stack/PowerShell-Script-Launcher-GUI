@@ -1,0 +1,294 @@
+# ============================================
+# Combine WMA Files into One MP3
+# Uses GitHub launcher folder structure
+# Includes automatic ffmpeg dependency check/update
+# ============================================
+
+$ErrorActionPreference = "Stop"
+
+# ============================================
+# Folder Setup
+# ============================================
+
+$DesktopPath = [Environment]::GetFolderPath("Desktop")
+$UserFilesRoot = Join-Path $DesktopPath "Script Launcher Files"
+$InputPath = Join-Path $UserFilesRoot "Input"
+$OutputPath = Join-Path $UserFilesRoot "Output"
+
+foreach ($folder in @($UserFilesRoot, $InputPath, $OutputPath)) {
+    if (-not (Test-Path $folder)) {
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    }
+}
+
+# ============================================
+# Dependency Check / Update
+# ============================================
+
+function Test-CommandExists {
+    param (
+        [string]$CommandName
+    )
+
+    $found = Get-Command $CommandName -ErrorAction SilentlyContinue
+
+    if ($found) {
+        Write-Host "$CommandName found at: $($found.Source)" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "$CommandName NOT found." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Run-WingetCommand {
+    param (
+        [string[]]$Arguments,
+        [string]$Description,
+        [switch]$Required
+    )
+
+    Write-Host ""
+    Write-Host $Description -ForegroundColor Cyan
+
+    try {
+        $Process = Start-Process `
+            -FilePath "winget" `
+            -ArgumentList $Arguments `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+        if ($Process.ExitCode -eq 0) {
+            Write-Host "Complete: $Description" -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host "Warning: $Description did not complete successfully." -ForegroundColor Yellow
+            Write-Host "Exit code: $($Process.ExitCode)" -ForegroundColor Yellow
+
+            if ($Required) {
+                return $false
+            }
+
+            return $true
+        }
+    }
+    catch {
+        Write-Host "Error while running winget." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+
+        if ($Required) {
+            return $false
+        }
+
+        return $true
+    }
+}
+
+function Ensure-Dependencies {
+
+    Write-Host ""
+    Write-Host "Checking required tools..." -ForegroundColor Cyan
+    Write-Host ""
+
+    if (-not (Test-CommandExists "winget")) {
+        Write-Host ""
+        Write-Host "winget is missing. Cannot automatically install or update ffmpeg." -ForegroundColor Red
+        Write-Host "Install App Installer from the Microsoft Store or contact support." -ForegroundColor Yellow
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    if (-not (Test-CommandExists "ffmpeg")) {
+        $success = Run-WingetCommand `
+            -Description "Installing ffmpeg..." `
+            -Required `
+            -Arguments @(
+                "install",
+                "--id", "Gyan.FFmpeg",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            )
+
+        if (-not $success) {
+            Write-Host ""
+            Write-Host "ffmpeg is required to combine and convert WMA files." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+    else {
+        Run-WingetCommand `
+            -Description "Updating ffmpeg..." `
+            -Arguments @(
+                "upgrade",
+                "--id", "Gyan.FFmpeg",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            ) | Out-Null
+    }
+
+    Write-Host ""
+    Write-Host "Dependency check complete." -ForegroundColor Green
+    Write-Host ""
+}
+
+# ============================================
+# Main Script
+# ============================================
+
+Clear-Host
+
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host " Combine WMA Files into One MP3" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Before continuing, please make sure:" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "1. All WMA files are in this folder:"
+Write-Host "   $InputPath" -ForegroundColor Green
+Write-Host ""
+Write-Host "2. The files are named in the correct order."
+Write-Host "   Example:"
+Write-Host "   01 track1.wma"
+Write-Host "   02 track2.wma"
+Write-Host "   03 track3.wma"
+Write-Host ""
+Write-Host "3. There are at least two WMA files in the Input folder."
+Write-Host ""
+Write-Host "4. Finished MP3 files will be saved to:"
+Write-Host "   $OutputPath" -ForegroundColor Green
+Write-Host ""
+Write-Host "This tool will combine the WMA files alphabetically into one MP3 file."
+Write-Host ""
+
+$Continue = Read-Host "Do you want to continue? Type Y to continue or N to cancel"
+
+if ($Continue -notmatch '^(y|yes)$') {
+    Write-Host ""
+    Write-Host "Canceled. No files were changed." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit
+}
+
+Ensure-Dependencies
+
+# ============================================
+# Get WMA files alphabetically from Input folder
+# ============================================
+
+Set-Location $InputPath
+
+$Files = Get-ChildItem -Path $InputPath -Filter *.wma | Sort-Object Name
+
+if ($Files.Count -lt 2) {
+    Write-Host ""
+    Write-Host "At least two WMA files are required." -ForegroundColor Red
+    Write-Host "Please place two or more WMA files in:" -ForegroundColor Yellow
+    Write-Host $InputPath -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "The following WMA files will be combined in this order:" -ForegroundColor Cyan
+Write-Host ""
+
+foreach ($File in $Files) {
+    Write-Host " - $($File.Name)"
+}
+
+Write-Host ""
+
+$ConfirmOrder = Read-Host "Does this order look correct? Type Y to continue or N to cancel"
+
+if ($ConfirmOrder -notmatch '^(y|yes)$') {
+    Write-Host ""
+    Write-Host "Canceled. Rename the files into the correct order and run again." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit
+}
+
+# ============================================
+# Prompt for output file
+# ============================================
+
+$OutputFile = Read-Host "Enter output MP3 filename (example: combined.mp3)"
+
+if ([string]::IsNullOrWhiteSpace($OutputFile)) {
+    Write-Host ""
+    Write-Host "No output filename provided. Exiting." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+if (-not $OutputFile.EndsWith(".mp3")) {
+    $OutputFile += ".mp3"
+}
+
+$OutputFilePath = Join-Path $OutputPath $OutputFile
+
+if (Test-Path $OutputFilePath) {
+    Write-Host ""
+    Write-Host "Output file already exists:" -ForegroundColor Red
+    Write-Host $OutputFilePath -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please choose a different name or delete the existing file first." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# ============================================
+# Build FFmpeg input arguments
+# ============================================
+
+$InputArgs = @()
+
+foreach ($File in $Files) {
+    $InputArgs += "-i"
+    $InputArgs += $File.FullName
+}
+
+$Filter = "concat=n=$($Files.Count):v=0:a=1"
+
+# ============================================
+# Run FFmpeg
+# ============================================
+
+Write-Host ""
+Write-Host "Combining files into MP3..." -ForegroundColor Cyan
+
+try {
+    ffmpeg `
+        $InputArgs `
+        -filter_complex $Filter `
+        -acodec libmp3lame `
+        -ab 192k `
+        "$OutputFilePath"
+}
+catch {
+    Write-Host ""
+    Write-Host "FFmpeg failed during processing." -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "FFmpeg did not complete successfully." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Success! Created '$OutputFile'" -ForegroundColor Green
+Write-Host "Saved to:" -ForegroundColor Green
+Write-Host $OutputPath -ForegroundColor Green
+Write-Host ""
+
+Read-Host "Press Enter to exit"

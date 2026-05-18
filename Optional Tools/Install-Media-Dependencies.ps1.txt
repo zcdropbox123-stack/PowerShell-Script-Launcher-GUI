@@ -1,0 +1,229 @@
+# ============================================================
+# Install / Update Media Dependencies
+# Installs or updates yt-dlp and ffmpeg using winget
+# ============================================================
+
+$ErrorActionPreference = "Stop"
+
+Clear-Host
+
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host " Install / Update Media Tools" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "This tool will check for and install/update:" -ForegroundColor Yellow
+Write-Host " - yt-dlp  : used for downloading video/audio from URLs"
+Write-Host " - ffmpeg  : used for converting, merging, and extracting audio/video"
+Write-Host ""
+Write-Host "This may require an internet connection and administrator approval."
+Write-Host ""
+
+$Continue = Read-Host "Do you want to continue? Type Y to continue or N to cancel"
+
+if ($Continue -notmatch '^(y|yes)$') {
+    Write-Host ""
+    Write-Host "Canceled. No changes were made." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
+    exit
+}
+
+# ------------------------------------------------------------
+# Helper Functions
+# ------------------------------------------------------------
+
+function Test-CommandExists {
+    param (
+        [string]$CommandName
+    )
+
+    $found = Get-Command $CommandName -ErrorAction SilentlyContinue
+
+    if ($found) {
+        Write-Host "$CommandName found at: $($found.Source)" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "$CommandName not found." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Invoke-Winget {
+    param (
+        [string[]]$Arguments,
+        [string]$Description,
+        [switch]$Required
+    )
+
+    Write-Host ""
+    Write-Host $Description -ForegroundColor Cyan
+
+    try {
+        $Process = Start-Process `
+            -FilePath "winget" `
+            -ArgumentList $Arguments `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+        if ($Process.ExitCode -eq 0) {
+            Write-Host "Complete: $Description" -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host "Warning: $Description did not complete successfully." -ForegroundColor Yellow
+            Write-Host "Exit code: $($Process.ExitCode)" -ForegroundColor Yellow
+
+            if ($Required) {
+                return $false
+            }
+
+            return $true
+        }
+    }
+    catch {
+        Write-Host "Error while running winget." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+
+        if ($Required) {
+            return $false
+        }
+
+        return $true
+    }
+}
+
+# ------------------------------------------------------------
+# Check winget
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "Checking for winget..." -ForegroundColor Cyan
+
+if (-not (Test-CommandExists "winget")) {
+    Write-Host ""
+    Write-Host "winget is not installed or is not available from PowerShell." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Install 'App Installer' from the Microsoft Store, then run this script again." -ForegroundColor Yellow
+    Write-Host "If this is a managed computer, contact support." -ForegroundColor Yellow
+    Write-Host ""
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+# ------------------------------------------------------------
+# Install or update yt-dlp
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "Checking yt-dlp..." -ForegroundColor Cyan
+
+if (-not (Test-CommandExists "yt-dlp")) {
+    $success = Invoke-Winget `
+        -Description "Installing yt-dlp..." `
+        -Required `
+        -Arguments @(
+            "install",
+            "--id", "yt-dlp.yt-dlp",
+            "--exact",
+            "--accept-source-agreements",
+            "--accept-package-agreements"
+        )
+
+    if (-not $success) {
+        Write-Host ""
+        Write-Host "yt-dlp could not be installed. Some media scripts will not work." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+else {
+    Write-Host ""
+    Write-Host "Updating yt-dlp..." -ForegroundColor Cyan
+
+    try {
+        yt-dlp -U
+        Write-Host "yt-dlp update check complete." -ForegroundColor Green
+    }
+    catch {
+        Write-Host "yt-dlp update failed. Attempting winget upgrade instead..." -ForegroundColor Yellow
+
+        Invoke-Winget `
+            -Description "Updating yt-dlp through winget..." `
+            -Arguments @(
+                "upgrade",
+                "--id", "yt-dlp.yt-dlp",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            ) | Out-Null
+    }
+}
+
+# ------------------------------------------------------------
+# Install or update ffmpeg
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "Checking ffmpeg..." -ForegroundColor Cyan
+
+if (-not (Test-CommandExists "ffmpeg")) {
+    $success = Invoke-Winget `
+        -Description "Installing ffmpeg..." `
+        -Required `
+        -Arguments @(
+            "install",
+            "--id", "Gyan.FFmpeg",
+            "--exact",
+            "--accept-source-agreements",
+            "--accept-package-agreements"
+        )
+
+    if (-not $success) {
+        Write-Host ""
+        Write-Host "ffmpeg could not be installed. Audio/video processing scripts will not work." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+else {
+    Invoke-Winget `
+        -Description "Updating ffmpeg..." `
+        -Arguments @(
+            "upgrade",
+            "--id", "Gyan.FFmpeg",
+            "--exact",
+            "--accept-source-agreements",
+            "--accept-package-agreements"
+        ) | Out-Null
+}
+
+# ------------------------------------------------------------
+# Final Verification
+# ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host " Final Check" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+
+$YtDlpReady = Test-CommandExists "yt-dlp"
+$FfmpegReady = Test-CommandExists "ffmpeg"
+
+Write-Host ""
+
+if ($YtDlpReady -and $FfmpegReady) {
+    Write-Host "Media dependencies are ready." -ForegroundColor Green
+    Write-Host ""
+    Write-Host "You can now use scripts that download, convert, merge, or extract media." -ForegroundColor Green
+}
+else {
+    Write-Host "One or more media dependencies are still missing." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "If the installation just completed, close PowerShell and reopen the launcher." -ForegroundColor Yellow
+    Write-Host "Sometimes PATH updates are not available until a new PowerShell window is opened." -ForegroundColor Yellow
+}
+
+Write-Host ""
+Read-Host "Press Enter to exit"

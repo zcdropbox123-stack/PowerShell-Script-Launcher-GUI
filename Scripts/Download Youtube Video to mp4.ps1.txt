@@ -1,0 +1,235 @@
+# =========================================
+# ProPresenter-safe Video Downloader
+# Forces H.264 + MP4
+# Uses GitHub launcher folder structure
+# Includes automatic dependency check/update
+# =========================================
+
+$ErrorActionPreference = "Stop"
+
+# =========================================
+# Folder Setup
+# =========================================
+
+$DesktopPath = [Environment]::GetFolderPath("Desktop")
+$UserFilesRoot = Join-Path $DesktopPath "Script Launcher Files"
+$OutputPath = Join-Path $UserFilesRoot "Output"
+
+foreach ($folder in @($UserFilesRoot, $OutputPath)) {
+    if (-not (Test-Path $folder)) {
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+    }
+}
+
+# =========================================
+# Dependency Check / Update
+# =========================================
+
+function Test-CommandExists {
+    param (
+        [string]$CommandName
+    )
+
+    $found = Get-Command $CommandName -ErrorAction SilentlyContinue
+
+    if ($found) {
+        Write-Host "$CommandName found at: $($found.Source)" -ForegroundColor Green
+        return $true
+    }
+    else {
+        Write-Host "$CommandName NOT found." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Run-WingetCommand {
+    param (
+        [string[]]$Arguments,
+        [string]$Description,
+        [switch]$Required
+    )
+
+    Write-Host ""
+    Write-Host $Description -ForegroundColor Cyan
+
+    try {
+        $Process = Start-Process `
+            -FilePath "winget" `
+            -ArgumentList $Arguments `
+            -NoNewWindow `
+            -Wait `
+            -PassThru
+
+        if ($Process.ExitCode -eq 0) {
+            Write-Host "Complete: $Description" -ForegroundColor Green
+            return $true
+        }
+        else {
+            Write-Host "Warning: $Description did not complete successfully." -ForegroundColor Yellow
+            Write-Host "Exit code: $($Process.ExitCode)" -ForegroundColor Yellow
+
+            if ($Required) {
+                return $false
+            }
+
+            return $true
+        }
+    }
+    catch {
+        Write-Host "Error while running winget." -ForegroundColor Red
+        Write-Host $_.Exception.Message -ForegroundColor Red
+
+        if ($Required) {
+            return $false
+        }
+
+        return $true
+    }
+}
+
+function Ensure-Dependencies {
+
+    Write-Host ""
+    Write-Host "Checking required tools..." -ForegroundColor Cyan
+    Write-Host ""
+
+    if (-not (Test-CommandExists "winget")) {
+        Write-Host ""
+        Write-Host "winget is missing. Cannot automatically install or update tools." -ForegroundColor Red
+        Write-Host "Install App Installer from the Microsoft Store or contact support." -ForegroundColor Yellow
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+
+    # yt-dlp
+    if (-not (Test-CommandExists "yt-dlp")) {
+        $success = Run-WingetCommand `
+            -Description "Installing yt-dlp..." `
+            -Required `
+            -Arguments @(
+                "install",
+                "--id", "yt-dlp.yt-dlp",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            )
+
+        if (-not $success) {
+            Write-Host "yt-dlp is required. Exiting." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+    else {
+        Write-Host ""
+        Write-Host "Updating yt-dlp..." -ForegroundColor Cyan
+
+        try {
+            yt-dlp -U
+            Write-Host "yt-dlp update check complete." -ForegroundColor Green
+        }
+        catch {
+            Write-Host "yt-dlp self-update failed. Trying winget upgrade..." -ForegroundColor Yellow
+
+            Run-WingetCommand `
+                -Description "Updating yt-dlp through winget..." `
+                -Arguments @(
+                    "upgrade",
+                    "--id", "yt-dlp.yt-dlp",
+                    "--exact",
+                    "--accept-source-agreements",
+                    "--accept-package-agreements"
+                ) | Out-Null
+        }
+    }
+
+    # ffmpeg
+    if (-not (Test-CommandExists "ffmpeg")) {
+        $success = Run-WingetCommand `
+            -Description "Installing ffmpeg..." `
+            -Required `
+            -Arguments @(
+                "install",
+                "--id", "Gyan.FFmpeg",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            )
+
+        if (-not $success) {
+            Write-Host "ffmpeg is required for video merging. Exiting." -ForegroundColor Red
+            Read-Host "Press Enter to exit"
+            exit 1
+        }
+    }
+    else {
+        Run-WingetCommand `
+            -Description "Updating ffmpeg..." `
+            -Arguments @(
+                "upgrade",
+                "--id", "Gyan.FFmpeg",
+                "--exact",
+                "--accept-source-agreements",
+                "--accept-package-agreements"
+            ) | Out-Null
+    }
+
+    Write-Host ""
+    Write-Host "Dependency check complete." -ForegroundColor Green
+    Write-Host ""
+}
+
+# =========================================
+# Main Script
+# =========================================
+
+Clear-Host
+
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host " Download Video for ProPresenter" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "This will download a ProPresenter-friendly MP4 video." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Finished files will be saved to:"
+Write-Host $OutputPath -ForegroundColor Green
+Write-Host ""
+
+Ensure-Dependencies
+
+Write-Host "Paste video URL:"
+$Url = Read-Host
+
+if ([string]::IsNullOrWhiteSpace($Url)) {
+    Write-Host ""
+    Write-Host "No URL provided. Exiting." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Downloading ProPresenter-safe MP4 video..." -ForegroundColor Cyan
+
+# Force H.264 for ProPresenter compatibility
+$Format = "bv*[vcodec^=avc1]+ba/best[vcodec^=avc1]/best"
+
+yt-dlp `
+    -f $Format `
+    --merge-output-format mp4 `
+    -o "$OutputPath\%(title)s.%(ext)s" `
+    $Url
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "Video download failed. Please check the URL or contact support." -ForegroundColor Red
+    Read-Host "Press Enter to exit"
+    exit 1
+}
+
+Write-Host ""
+Write-Host "Video download complete." -ForegroundColor Green
+Write-Host "Saved to:" -ForegroundColor Green
+Write-Host $OutputPath -ForegroundColor Green
+Write-Host ""
+
+Read-Host "Press Enter to exit"
