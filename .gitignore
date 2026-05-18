@@ -1,0 +1,35 @@
+# Windows junk
+Thumbs.db
+Desktop.ini
+
+# Desktop shortcuts should be generated locally by the installer
+*.lnk
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# PowerShell output/session-related files
+*.ps1xml
+
+# Downloaded or processed media files
+*.mp3
+*.mp4
+*.wma
+*.wav
+*.m4a
+*.mov
+*.avi
+*.mkv
+
+# Local working folders created on the user's desktop
+Input/
+Output/
+Script Launcher Files/
+Media Tools Files/
+
+# Local test/output folders
+downloads/
+output/
+convert/
